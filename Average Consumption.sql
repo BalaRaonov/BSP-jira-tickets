@@ -1,0 +1,99 @@
+WITH BAIXA AS (
+SELECT
+    Item.INVENTORY_ITEM_ID ,
+    item.organization_id,
+    item.segment1 AS "ITEM NUMBER",
+    MAX (itempt.description) AS "DESCRIÇÃO_PT",
+    MAX (item.description) AS "DESCRIÇÃO_EN",
+    (SUM(Trans.TRANSACTION_QUANTITY)*-1) AS "BAIXAS NO PERÍODO",
+    (ROUND(SUM(Trans.TRANSACTION_QUANTITY)/(MONTHS_BETWEEN(to_date(<Parameters.End Date>, 'DD/MM/RRRR'), to_date(<Parameters.Start Date>, 'DD/MM/RRRR'))))*-1) AS "MÉDIA DE CONSUMO", --substituir a data de hoje e 01/01/2023 para a data entrada por filtro pelo usuário     
+    MAX (Trans.SUBINVENTORY_CODE) AS "SUBINVENTÁRIO",
+    MAX (Item.PLANNER_CODE)     PLANNER,
+    'Com Baixa no Período' as Analise_Baixa
+    
+FROM
+--Oracle Connection
+--    MTL_MATERIAL_TRANSACTIONS Trans,
+--    MTL_System_Items_b Item,
+--    MTL_TRANSACTION_TYPES TTypes
+
+--DW Connection 
+WC_ORA_MTL_SYSTEM_ITEMS_B_DS Item
+inner join WC_ORA_MTL_SYSTEM_ITEMS_TL_DS ItemPT
+    ON item.organization_id  = itempt.organization_id
+    AND Item.INVENTORY_ITEM_ID = itempt.INVENTORY_ITEM_ID
+    and itempt.LANGUAGE = 'PTB'
+left join WC_ORA_MTL_MATERIAL_TRANS_DS Trans
+    ON Trans.INVENTORY_ITEM_ID         =   Item.INVENTORY_ITEM_ID
+    AND Trans.SUBINVENTORY_CODE         IN  ('WCONS01', 'WLUB01','WMAN01')   
+    AND Trans.TRANSACTION_DATE          >= to_date(<Parameters.Start Date>,'DD/MM/RRRR') 
+    AND Trans.TRANSACTION_DATE          <= to_date(<Parameters.End Date>,'DD/MM/RRRR')
+inner join WC_ORA_MTL_TRANSACTION_TYPS_DS TTypes
+    ON Trans.TRANSACTION_TYPE_ID       =   TTypes.TRANSACTION_TYPE_ID
+    AND TTypes.TRANSACTION_TYPE_NAME    IN ('WIP Issue', 'WIP Return')
+    
+WHERE
+item.organization_id  = 4226
+    
+group by
+    Item.INVENTORY_ITEM_ID ,
+    item.organization_id,
+    Item.segment1,
+'Com Baixa no Período'
+)
+, S_BAIXA AS (
+SELECT
+item.INVENTORY_ITEM_ID
+,item.ORGANIZATION_ID
+,ITEM.SEGMENT1 AS "ITEM NUMBER"
+,MAX (ITEMPT.DESCRIPTION) AS "DESCRIÇÃO_PT"
+,MAX (ITEM.DESCRIPTION) AS "DESCRIÇÃO_EN"
+--,SUM(TRANSACTION_QUANTITY)
+,0 AS "BAIXAS NO PERÍODO"
+,0 AS "MÉDIA DE CONSUMO"
+,'NA' AS     SUBINVENTÁRIO
+,MAX (ITEM.PLANNER_CODE)     PLANNER
+,'Sem Baixa no Período' AS ANALISE_BAIXA
+FROM
+WC_ORA_MTL_SYSTEM_ITEMS_B_DS ITEM
+
+--LEFT JOIN WC_ORA_MTL_SYSTEM_ITEMS_B_DS ITEM
+--ON QOH.ORGANIZATION_ID      =   ITEM.ORGANIZATION_ID
+--AND QOH.INVENTORY_ITEM_ID   =   ITEM.INVENTORY_ITEM_ID
+
+LEFT JOIN WC_ORA_MTL_SYSTEM_ITEMS_TL_DS ITEMPT
+ON ITEM.ORGANIZATION_ID     = ITEMPT.ORGANIZATION_ID
+AND ITEM.INVENTORY_ITEM_ID  = ITEMPT.INVENTORY_ITEM_ID
+AND ITEMPT.LANGUAGE         = 'PTB'
+
+WHERE 1=1
+AND item.ORGANIZATION_ID     = 4226
+--AND QOH.SUBINVENTORY_CODE   IN ('WCONS01', 'WLUB01','WMAN01')  
+AND ITEM.PLANNER_CODE IN ('A-CONS', 'A-CONS-FAC', 'A-CONS-HSE' ,'A-CONS-MAN')
+
+
+GROUP BY
+ITEM.INVENTORY_ITEM_ID ,
+ITEM.ORGANIZATION_ID,
+ITEM.SEGMENT1,
+'Sem Baixa no Período'
+)
+SELECT
+S.*
+--,B."BAIXAS NO PERÍODO"
+
+FROM S_BAIXA S
+
+LEFT JOIN BAIXA B
+ON S.INVENTORY_ITEM_ID  =   B.INVENTORY_ITEM_ID
+AND S.ORGANIZATION_ID   =   B.ORGANIZATION_ID
+
+WHERE 1=1
+AND B."BAIXAS NO PERÍODO" IS NULL
+
+UNION ALL
+
+SELECT 
+BAIXA.*
+
+FROM BAIXA
